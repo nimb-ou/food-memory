@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+from tqdm.auto import tqdm
 
 from .config import DEFAULT_ENCODER, QUICK_TEST_PER_CLASS, artifact_dir_for_mode
 from .datasets import iter_food101
@@ -39,8 +40,10 @@ def evaluate(
     confidences: list[float] = []
     examples: list[dict] = []
 
+    print("[1/4] Loading test examples")
     test_samples = list(iter_food101("test", samples_per_class=samples_per_class, seed=seed))
-    for sample in test_samples:
+    print(f"[2/4] Running retrieval on {len(test_samples):,} test images")
+    for sample in tqdm(test_samples, unit="image"):
         result = memory.query_image(sample.image, k=max_k, vote_k=max_k)
         ranked = ranked_labels_from_neighbors(
             [n.label_id for n in result.neighbors],
@@ -71,8 +74,18 @@ def evaluate(
         "examples": examples,
     }
 
-    baselines = {} if skip_baselines else _run_baselines(memory, embedder, test_samples, max_k)
-    robustness_results = _run_robustness(memory, test_samples, max_k) if robustness else {}
+    baselines = {}
+    if not skip_baselines:
+        print("[3/4] Running CLIP zero-shot and logistic regression baselines")
+        baselines = _run_baselines(memory, embedder, test_samples, max_k)
+    else:
+        print("[3/4] Skipping baselines")
+    robustness_results = {}
+    if robustness:
+        print("[4/4] Running robustness perturbations")
+        robustness_results = _run_robustness(memory, test_samples, max_k)
+    else:
+        print("[4/4] Skipping robustness perturbations")
     out = {
         "artifact_dir": str(artifact_dir),
         "index": index,
@@ -168,7 +181,7 @@ def _run_robustness(memory: FoodMemory, test_samples, max_k: int) -> dict:
         y_true = []
         y_pred = []
         latencies = []
-        for sample in test_samples:
+        for sample in tqdm(test_samples, desc=name, unit="image"):
             result = memory.query_image(fn(sample.image), k=max_k, vote_k=max_k)
             y_true.append(sample.label_id)
             y_pred.append(result.label_id)

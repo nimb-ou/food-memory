@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+from tqdm.auto import tqdm
 
 from .config import (
     DEFAULT_ARTIFACT_ROOT,
@@ -43,25 +44,32 @@ def build_artifacts(
     for label_id, label_name in enumerate(labels):
         store.insert_label(label_id, label_name)
 
+    total_train = len(label_dataset) if samples_per_class is None else samples_per_class * len(labels)
+    print(f"[1/4] Loading encoder: {encoder}")
     embedder = CLIPImageEmbedder(model_name=encoder, device=device)
+    print(f"[2/4] Embedding {total_train:,} training images into CLIP memory")
     records: list[ImageRecord] = []
     embeddings: list[np.ndarray] = []
     images = []
     pending_rows = []
     row_id = 0
 
-    for sample in iter_food101("train", samples_per_class=samples_per_class, seed=seed):
-        image = sample.image.convert("RGB")
-        images.append(image)
-        pending_rows.append((row_id, sample))
-        row_id += 1
-        if len(images) >= batch_size:
+    with tqdm(total=total_train, unit="image") as progress:
+        for sample in iter_food101("train", samples_per_class=samples_per_class, seed=seed):
+            image = sample.image.convert("RGB")
+            images.append(image)
+            pending_rows.append((row_id, sample))
+            row_id += 1
+            if len(images) >= batch_size:
+                _flush_batch(embedder, images, pending_rows, embeddings, records)
+                progress.update(len(images))
+                images, pending_rows = [], []
+
+        if images:
             _flush_batch(embedder, images, pending_rows, embeddings, records)
-            images, pending_rows = [], []
+            progress.update(len(images))
 
-    if images:
-        _flush_batch(embedder, images, pending_rows, embeddings, records)
-
+    print("[3/4] Writing SQLite metadata and embedding matrix")
     train_embeddings = l2_normalize(np.vstack(embeddings))
     np.save(artifact_dir / "train_embeddings.npy", train_embeddings)
     store.insert_records(records)
@@ -77,6 +85,7 @@ def build_artifacts(
         },
     )
 
+    print("[4/4] Building FAISS flat and HNSW indexes")
     for kind in ("flat", "hnsw"):
         idx = FAISSVectorIndex(kind=kind).build(train_embeddings)
         idx.save(artifact_dir / f"index_{kind}.faiss")

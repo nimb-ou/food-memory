@@ -7,6 +7,7 @@ from typing import Iterable, Protocol, Sequence
 
 import numpy as np
 from PIL import Image
+from tqdm.auto import tqdm
 
 from .config import DEFAULT_ENCODER, LABEL_PROMPT
 from .metrics import l2_normalize
@@ -57,8 +58,10 @@ class CLIPImageEmbedder:
     def embed_images(self, images: Sequence[Image.Image], batch_size: int = 32) -> np.ndarray:
         chunks: list[np.ndarray] = []
         torch = self._torch
+        batches = list(_batches(images, batch_size))
+        iterator = tqdm(batches, desc="CLIP image batches", unit="batch", leave=False) if len(batches) > 1 else batches
         with torch.no_grad():
-            for batch in _batches(images, batch_size):
+            for batch in iterator:
                 rgb = [im.convert("RGB") for im in batch]
                 inputs = self.processor(images=rgb, return_tensors="pt")
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
@@ -69,8 +72,10 @@ class CLIPImageEmbedder:
     def embed_texts(self, texts: Sequence[str], batch_size: int = 64) -> np.ndarray:
         chunks: list[np.ndarray] = []
         torch = self._torch
+        batches = list(_batches(texts, batch_size))
+        iterator = tqdm(batches, desc="CLIP text batches", unit="batch", leave=False) if len(batches) > 1 else batches
         with torch.no_grad():
-            for batch in _batches(texts, batch_size):
+            for batch in iterator:
                 inputs = self.processor(text=list(batch), return_tensors="pt", padding=True, truncation=True)
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
                 feats = self.model.get_text_features(**inputs)
@@ -86,4 +91,3 @@ def label_prompts(label_names: Iterable[str]) -> list[str]:
 def _batches(items: Sequence, size: int):
     for i in range(0, len(items), int(size)):
         yield items[i : i + int(size)]
-

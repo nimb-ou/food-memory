@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+.venv/
+venv/
+
+# Food Memory generated data and model artifacts
+artifacts/
+outputs/
+*.faiss
+*.npy
+*.npz
+*.sqlite
+*.sqlite3
+*.db
+*.parquet
+*.pt
+*.pth
+*.onnx
+
+# Generated portfolio assets
+docs/generated/
+design/generated/
+
+# Hugging Face / model caches if users point them into the repo
+.cache/
+huggingface/
+

@@ -1,0 +1,46 @@
+{
+  "project": "Food Memory",
+  "mode": "sample",
+  "note": "Illustrative schema for asset generation. Replace with artifacts/quick/results_hnsw.json or artifacts/full/results_hnsw.json after evaluation.",
+  "retrieval": {
+    "topk": {
+      "top_1": 0.0,
+      "top_3": 0.0,
+      "top_5": 0.0
+    },
+    "macro_f1": 0.0,
+    "latency_us": {
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.0,
+      "mean": 0.0
+    },
+    "rejection_curve": [
+      {
+        "threshold": 0.25,
+        "coverage": 0.0,
+        "accepted_accuracy": 0.0
+      }
+    ]
+  },
+  "baselines": {
+    "clip_zero_shot": {
+      "top_1": 0.0,
+      "top_3": 0.0,
+      "top_5": 0.0,
+      "macro_f1": 0.0
+    },
+    "logistic_regression_on_embeddings": {
+      "top_1": 0.0,
+      "top_3": 0.0,
+      "top_5": 0.0,
+      "macro_f1": 0.0
+    }
+  },
+  "robustness": {
+    "jpeg_q50": {
+      "top_1": 0.0,
+      "macro_f1": 0.0
+    }
+  }
+}

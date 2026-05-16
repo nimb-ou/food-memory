@@ -66,7 +66,7 @@ class CLIPImageEmbedder:
                 inputs = self.processor(images=rgb, return_tensors="pt")
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
                 feats = self.model.get_image_features(**inputs)
-                chunks.append(feats.detach().cpu().numpy().astype(np.float32))
+                chunks.append(_tensor_to_numpy(feats))
         return l2_normalize(np.vstack(chunks))
 
     def embed_texts(self, texts: Sequence[str], batch_size: int = 64) -> np.ndarray:
@@ -79,7 +79,7 @@ class CLIPImageEmbedder:
                 inputs = self.processor(text=list(batch), return_tensors="pt", padding=True, truncation=True)
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
                 feats = self.model.get_text_features(**inputs)
-                chunks.append(feats.detach().cpu().numpy().astype(np.float32))
+                chunks.append(_tensor_to_numpy(feats))
         return l2_normalize(np.vstack(chunks))
 
 
@@ -91,3 +91,16 @@ def label_prompts(label_names: Iterable[str]) -> list[str]:
 def _batches(items: Sequence, size: int):
     for i in range(0, len(items), int(size)):
         yield items[i : i + int(size)]
+
+
+def _tensor_to_numpy(features) -> np.ndarray:
+    """Handle tensor and model-output return types across Transformers versions."""
+    if hasattr(features, "detach"):
+        tensor = features
+    elif hasattr(features, "pooler_output"):
+        tensor = features.pooler_output
+    elif isinstance(features, (tuple, list)) and features and hasattr(features[0], "detach"):
+        tensor = features[0]
+    else:
+        raise TypeError(f"unsupported CLIP feature output type: {type(features)!r}")
+    return tensor.detach().cpu().numpy().astype(np.float32)

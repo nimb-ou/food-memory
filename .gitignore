@@ -10,6 +10,7 @@ venv/
 # Food Memory generated data and model artifacts
 artifacts/
 outputs/
+logs/
 *.faiss
 *.npy
 *.npz
@@ -28,4 +29,3 @@ design/generated/
 # Hugging Face / model caches if users point them into the repo
 .cache/
 huggingface/
-

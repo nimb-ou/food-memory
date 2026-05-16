@@ -28,6 +28,7 @@ def evaluate(
     seed: int,
     skip_baselines: bool,
     robustness: bool,
+    batch_size: int,
 ) -> dict:
     embedder = CLIPImageEmbedder(model_name=encoder, device=device)
     memory = FoodMemory.from_artifact_dir(artifact_dir, index=index, embedder=embedder)
@@ -42,9 +43,11 @@ def evaluate(
 
     print("[1/4] Loading test examples")
     test_samples = list(iter_food101("test", samples_per_class=samples_per_class, seed=seed))
-    print(f"[2/4] Running retrieval on {len(test_samples):,} test images")
-    for sample in tqdm(test_samples, unit="image"):
-        result = memory.query_image(sample.image, k=max_k, vote_k=max_k)
+    print(f"[2/4] Embedding and retrieving {len(test_samples):,} test images")
+    test_images = [sample.image for sample in test_samples]
+    test_embeddings = embedder.embed_images(test_images, batch_size=batch_size)
+    for sample, embedding in tqdm(list(zip(test_samples, test_embeddings)), unit="image"):
+        result = memory.query_embedding(embedding, k=max_k, vote_k=max_k)
         ranked = ranked_labels_from_neighbors(
             [n.label_id for n in result.neighbors],
             [n.score for n in result.neighbors],
@@ -77,13 +80,13 @@ def evaluate(
     baselines = {}
     if not skip_baselines:
         print("[3/4] Running CLIP zero-shot and logistic regression baselines")
-        baselines = _run_baselines(memory, embedder, test_samples, max_k)
+        baselines = _run_baselines(memory, embedder, test_samples, test_embeddings, max_k, batch_size)
     else:
         print("[3/4] Skipping baselines")
     robustness_results = {}
     if robustness:
         print("[4/4] Running robustness perturbations")
-        robustness_results = _run_robustness(memory, test_samples, max_k)
+        robustness_results = _run_robustness(memory, embedder, test_samples, max_k, batch_size)
     else:
         print("[4/4] Skipping robustness perturbations")
     out = {
@@ -99,13 +102,11 @@ def evaluate(
     return out
 
 
-def _run_baselines(memory: FoodMemory, embedder: CLIPImageEmbedder, test_samples, max_k: int) -> dict:
-    images = [s.image for s in test_samples]
+def _run_baselines(memory: FoodMemory, embedder: CLIPImageEmbedder, test_samples, test_embeddings, max_k: int, batch_size: int) -> dict:
     y_true = [s.label_id for s in test_samples]
-    test_embeddings = embedder.embed_images(images, batch_size=32)
 
     prompts = label_prompts([memory.labels[i] for i in sorted(memory.labels)])
-    text_embeddings = embedder.embed_texts(prompts, batch_size=64)
+    text_embeddings = embedder.embed_texts(prompts, batch_size=max(64, batch_size))
     zero_scores = test_embeddings @ text_embeddings.T
     zero_order = np.argsort(-zero_scores, axis=1)[:, :max_k]
     zero_pred = zero_order[:, 0].astype(int).tolist()
@@ -175,14 +176,16 @@ def _rejection_curve(y_true: list[int], y_pred: list[int], confidences: list[flo
     return curve
 
 
-def _run_robustness(memory: FoodMemory, test_samples, max_k: int) -> dict:
+def _run_robustness(memory: FoodMemory, embedder: CLIPImageEmbedder, test_samples, max_k: int, batch_size: int) -> dict:
     out = {}
     for name, fn in PERTURBATIONS.items():
         y_true = []
         y_pred = []
         latencies = []
-        for sample in tqdm(test_samples, desc=name, unit="image"):
-            result = memory.query_image(fn(sample.image), k=max_k, vote_k=max_k)
+        images = [fn(sample.image) for sample in tqdm(test_samples, desc=f"{name} perturb", unit="image")]
+        embeddings = embedder.embed_images(images, batch_size=batch_size)
+        for sample, embedding in tqdm(list(zip(test_samples, embeddings)), desc=f"{name} search", unit="image"):
+            result = memory.query_embedding(embedding, k=max_k, vote_k=max_k)
             y_true.append(sample.label_id)
             y_pred.append(result.label_id)
             latencies.append(result.latency_us)
@@ -206,6 +209,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--seed", type=int, default=123)
     ap.add_argument("--skip-baselines", action="store_true")
     ap.add_argument("--robustness", action="store_true", help="Run JPEG/crop/brightness/noise perturbation checks")
+    ap.add_argument("--batch-size", type=int, default=32)
     return ap.parse_args()
 
 
@@ -224,6 +228,7 @@ def main() -> None:
         seed=args.seed,
         skip_baselines=args.skip_baselines,
         robustness=args.robustness,
+        batch_size=args.batch_size,
     )
     print(json.dumps(out, indent=2))
 
